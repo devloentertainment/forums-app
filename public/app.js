@@ -1,447 +1,920 @@
+// =====================
+// STATE MANAGEMENT
+// =====================
+
 const state = {
   user: null,
-  currentForum: null,
-  forums: []
+  currentForm: null,
+  forms: [],
+  currentMode: 'dashboard', // dashboard, edit, preview, responses
+  selectedQuestion: null,
+  editHistory: [],
+  editHistoryIndex: -1
 };
 
 const API_URL = 'http://localhost:3000/api';
 
-const app = document.getElementById('app');
+// =====================
+// INITIALIZATION
+// =====================
+
+function init() {
+  const token = localStorage.getItem('token');
+  const email = localStorage.getItem('userEmail');
+  
+  if (token && email) {
+    state.user = { email };
+    render();
+  } else {
+    render();
+  }
+}
+
+// =====================
+// RENDER ENGINE
+// =====================
 
 function render() {
+  const app = document.getElementById('app');
+  
   if (!state.user) {
-    renderAuthScreen();
+    app.innerHTML = renderAuthScreen();
+    attachAuthListeners();
   } else {
-    renderMainApp();
+    app.innerHTML = renderMainApp();
+    attachMainListeners();
   }
 }
+
+// =====================
+// AUTH SCREENS
+// =====================
 
 function renderAuthScreen() {
-  const isLogin = true;
-  app.innerHTML = `
-    <div class="auth-container">
-      <h2>${isLogin ? 'Login' : 'Sign Up'}</h2>
-      <div class="form-group">
-        <label>Email</label>
-        <input type="email" id="email" placeholder="your@email.com">
-      </div>
-      <div class="form-group">
-        <label>Password</label>
-        <input type="password" id="password" placeholder="••••••••">
-      </div>
-      <button onclick="handleLogin()">Login</button>
-      <button onclick="handleRegister()" style="background: #ccc; color: #333; margin-top: 10px;">Create Account</button>
-      <div class="auth-toggle">
-        <p>Don't have an account? <button onclick="toggleAuthMode()">Sign Up</button></p>
+  return `
+    <div class="auth-wrapper">
+      <div class="auth-container">
+        <div class="auth-header">
+          <h1>FormsHub</h1>
+          <p>Create beautiful forms in minutes</p>
+        </div>
+        
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="auth-email" placeholder="you@example.com">
+        </div>
+        
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="auth-password" placeholder="••••••••">
+        </div>
+        
+        <button class="btn btn-primary" id="btn-auth" onclick="handleAuth()">Login</button>
+        <button class="btn btn-secondary" id="btn-toggle-auth" onclick="toggleAuthMode()">Create Account</button>
+        
+        <div class="auth-toggle">
+          <p><span id="auth-toggle-text">Don't have an account?</span> <button id="auth-mode-btn">Sign Up</button></p>
+        </div>
       </div>
     </div>
   `;
 }
+
+function toggleAuthMode() {
+  const container = document.querySelector('.auth-container');
+  const isLogin = container.querySelector('.auth-header h1').parentElement.querySelector('p').textContent === 'Create beautiful forms in minutes';
+  
+  if (isLogin) {
+    container.querySelector('.auth-header h1').textContent = 'FormsHub';
+    document.getElementById('btn-auth').textContent = 'Sign Up';
+    document.getElementById('auth-toggle-text').textContent = 'Already have an account?';
+    document.getElementById('auth-mode-btn').textContent = 'Login';
+  } else {
+    container.querySelector('.auth-header h1').textContent = 'FormsHub';
+    document.getElementById('btn-auth').textContent = 'Login';
+    document.getElementById('auth-toggle-text').textContent = "Don't have an account?";
+    document.getElementById('auth-mode-btn').textContent = 'Sign Up';
+  }
+}
+
+async function handleAuth() {
+  const email = document.getElementById('auth-email').value;
+  const password = document.getElementById('auth-password').value;
+  const btn = document.getElementById('btn-auth');
+  const isLogin = btn.textContent === 'Login';
+  
+  if (!email || !password) {
+    alert('Please fill in all fields');
+    return;
+  }
+  
+  try {
+    const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
+    const res = await fetch(API_URL + endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    
+    localStorage.setItem('token', data.token);
+    localStorage.setItem('userEmail', data.user.email);
+    state.user = data.user;
+    state.currentMode = 'dashboard';
+    render();
+  } catch (err) {
+    alert((isLogin ? 'Login' : 'Registration') + ' failed: ' + err.message);
+  }
+}
+
+// =====================
+// MAIN APP LAYOUT
+// =====================
 
 function renderMainApp() {
-  app.innerHTML = `
-    <nav>
-      <div class="container">
-        <h1>📋 Forums</h1>
-        <div class="nav-links">
-          <a href="#" onclick="showScreen('home')">Home</a>
-          <a href="#" onclick="showScreen('my-forums')">My Forums</a>
-          <span style="color: #999;">| ${state.user.email}</span>
-          <button onclick="handleLogout()">Logout</button>
-        </div>
-      </div>
-    </nav>
-
-    <div class="container">
-      <div id="home-screen" class="screen active">
-        ${renderHomeScreen()}
-      </div>
-      <div id="my-forums-screen" class="screen">
-        ${renderMyForumsScreen()}
-      </div>
-      <div id="create-forum-screen" class="screen">
-        ${renderCreateForumScreen()}
-      </div>
-      <div id="view-forum-screen" class="screen">
-        ${renderViewForumScreen()}
-      </div>
-    </div>
-  `;
-
-  attachEventListeners();
-}
-
-function renderHomeScreen() {
   return `
-    <div class="home-screen">
-      <h2>Welcome to Forums! 📝</h2>
-      <p>Create custom forms and collect responses from anyone</p>
-      <div class="home-buttons">
-        <button onclick="showScreen('create-forum')">+ Create Forum</button>
-        <button onclick="showScreen('my-forums')" style="background: #764ba2;">View My Forums</button>
-      </div>
-    </div>
-  `;
-}
-
-function renderMyForumsScreen() {
-  return `
-    <div>
-      <h2 style="color: white; margin-bottom: 30px;">My Forums</h2>
-      <div id="forums-list" class="dashboard">
-        <div class="spinner"></div>
-      </div>
-    </div>
-  `;
-}
-
-function renderCreateForumScreen() {
-  return `
-    <form class="create-forum-form" onsubmit="handleCreateForum(event)">
-      <h2>Create New Forum</h2>
-      <div class="form-group">
-        <label>Forum Title</label>
-        <input type="text" id="forum-title" placeholder="e.g., Customer Feedback" required>
-      </div>
-      <div class="form-group">
-        <label>Description (optional)</label>
-        <textarea id="forum-description" placeholder="Tell people what this forum is about" style="min-height: 80px; width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px;"></textarea>
-      </div>
-
-      <div class="questions-container">
-        <h3 style="color: #667eea; margin-bottom: 20px;">Questions</h3>
-        <div id="questions-list"></div>
-        <button type="button" class="add-question-btn" onclick="addQuestion()">+ Add Question</button>
-      </div>
-
-      <button type="submit" class="submit-forum-btn">Create Forum</button>
-    </form>
-  `;
-}
-
-function renderViewForumScreen() {
-  if (!state.currentForum) return '';
-  
-  return `
-    <div style="max-width: 900px; margin: 30px auto;">
-      <div class="analytics-header">
-        <h2>${state.currentForum.title}</h2>
-        <p>${state.currentForum.description || 'No description'}</p>
-        
-        <div style="margin-top: 20px; margin-bottom: 20px;">
-          <strong>Share Link:</strong>
-          <div class="copy-link-container">
-            <input type="text" readonly value="http://localhost:3000/fill/${state.currentForum.id}">
-            <button type="button" onclick="copyToClipboard('http://localhost:3000/fill/${state.currentForum.id}')">Copy</button>
+    <div class="app-wrapper">
+      ${renderSidebar()}
+      <div class="main-content">
+        ${renderTopbar()}
+        <div class="content-area">
+          <div class="workspace">
+            ${renderContentArea()}
           </div>
-        </div>
-
-        <div class="stats-grid">
-          <div class="stat-card">
-            <h3 id="response-count">0</h3>
-            <p>Total Responses</p>
-          </div>
-          <div class="stat-card">
-            <h3 id="question-count">${state.currentForum.questions.length}</h3>
-            <p>Questions</p>
-          </div>
-        </div>
-
-        <button onclick="deleteForum('${state.currentForum.id}')" style="background: #e74c3c; margin-top: 20px;">Delete Forum</button>
-        <button onclick="showScreen('my-forums')" style="background: #ccc; color: #333; margin-top: 20px; margin-left: 10px;">Back</button>
-      </div>
-
-      <div style="margin-top: 30px;">
-        <h3 style="color: white; margin-bottom: 20px;">Responses</h3>
-        <div id="responses-container" class="responses-list">
-          <div class="spinner"></div>
+          ${renderRightPanel()}
         </div>
       </div>
     </div>
   `;
 }
 
-async function handleLogin() {
-  const email = document.getElementById('email').value;
-  const password = document.getElementById('password').value;
-
-  if (!email || !password) {
-    alert('Please fill in all fields');
-    return;
-  }
-
-  try {
-    const res = await fetch(`${API_URL}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-
-    localStorage.setItem('token', data.token);
-    state.user = data.user;
-    render();
-  } catch (err) {
-    alert('Login failed: ' + err.message);
-  }
-}
-
-async function handleRegister() {
-  const email = document.getElementById('email').value;
-  const password = document.getElementById('password').value;
-
-  if (!email || !password) {
-    alert('Please fill in all fields');
-    return;
-  }
-
-  try {
-    const res = await fetch(`${API_URL}/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-
-    localStorage.setItem('token', data.token);
-    state.user = data.user;
-    render();
-  } catch (err) {
-    alert('Registration failed: ' + err.message);
-  }
-}
-
-function handleLogout() {
-  localStorage.removeItem('token');
-  state.user = null;
-  render();
-}
-
-function addQuestion() {
-  const list = document.getElementById('questions-list');
-  const questionId = Date.now();
-  const questionEl = document.createElement('div');
-  questionEl.className = 'question-item';
-  questionEl.innerHTML = `
-    <input type="text" placeholder="Question text" class="question-text" required>
-    <select class="question-type" required>
-      <option value="">Select Type</option>
-      <option value="short">Short Text</option>
-      <option value="long">Long Text</option>
-      <option value="multiple">Multiple Choice</option>
-      <option value="email">Email</option>
-    </select>
-    <input type="text" class="question-options" placeholder="Options (comma-separated, for multiple choice only)" style="display: none;">
-    <button type="button" class="remove-btn" onclick="this.parentElement.remove()">Remove</button>
+function renderSidebar() {
+  return `
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">📋 FormsHub</div>
+      </div>
+      
+      <nav class="sidebar-nav">
+        <div class="nav-item ${state.currentMode === 'dashboard' ? 'active' : ''}" onclick="switchMode('dashboard')">
+          <span>📊</span>
+          <span>My Forms</span>
+        </div>
+        <div class="nav-item" onclick="createNewForm()">
+          <span>➕</span>
+          <span>New Form</span>
+        </div>
+      </nav>
+      
+      <div class="sidebar-footer">
+        <div class="user-avatar">${state.user.email[0].toUpperCase()}</div>
+        <div class="user-info">
+          <div style="font-size: 13px; font-weight: 600; color: var(--neutral-900);">${state.user.email.split('@')[0]}</div>
+          <div class="email">${state.user.email}</div>
+        </div>
+        <button class="btn-logout" onclick="handleLogout()">🚪</button>
+      </div>
+    </div>
   `;
-
-  const select = questionEl.querySelector('.question-type');
-  const optionsInput = questionEl.querySelector('.question-options');
-  
-  select.addEventListener('change', () => {
-    optionsInput.style.display = select.value === 'multiple' ? 'block' : 'none';
-  });
-
-  list.appendChild(questionEl);
 }
 
-async function handleCreateForum(e) {
-  e.preventDefault();
+function renderTopbar() {
+  if (state.currentMode === 'dashboard') {
+    return `
+      <div class="topbar">
+        <h2 style="font-size: 18px; font-weight: 600; color: var(--neutral-900);">My Forms</h2>
+        <div class="topbar-spacer"></div>
+        <div class="topbar-actions">
+          <button class="btn-small primary" onclick="createNewForm()">+ Create Form</button>
+        </div>
+      </div>
+    `;
+  }
   
-  const title = document.getElementById('forum-title').value;
-  const description = document.getElementById('forum-description').value;
-  const questionElements = document.querySelectorAll('.question-item');
+  if (state.currentMode === 'edit') {
+    return `
+      <div class="topbar">
+        <div class="mode-tabs">
+          <button class="mode-tab active" onclick="switchMode('edit')">✏️ Edit</button>
+          <button class="mode-tab" onclick="switchMode('preview')">👁️ Preview</button>
+          <button class="mode-tab" onclick="switchMode('responses')">📊 Responses</button>
+        </div>
+        <div class="topbar-spacer"></div>
+        <div class="topbar-actions">
+          <button class="btn-small secondary" onclick="switchMode('dashboard')">← Back</button>
+          <button class="btn-small primary" onclick="shareForm()">🔗 Share</button>
+        </div>
+      </div>
+    `;
+  }
   
-  const questions = Array.from(questionElements).map(el => {
-    const type = el.querySelector('.question-type').value;
-    const text = el.querySelector('.question-text').value;
-    const options = el.querySelector('.question-options').value;
+  return `
+    <div class="topbar">
+      <div class="mode-tabs">
+        <button class="mode-tab ${state.currentMode === 'edit' ? 'active' : ''}" onclick="switchMode('edit')">✏️ Edit</button>
+        <button class="mode-tab ${state.currentMode === 'preview' ? 'active' : ''}" onclick="switchMode('preview')">👁️ Preview</button>
+        <button class="mode-tab ${state.currentMode === 'responses' ? 'active' : ''}" onclick="switchMode('responses')">📊 Responses</button>
+      </div>
+      <div class="topbar-spacer"></div>
+      <div class="topbar-actions">
+        <button class="btn-small secondary" onclick="switchMode('dashboard')">← Back</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderContentArea() {
+  switch (state.currentMode) {
+    case 'dashboard':
+      return renderDashboard();
+    case 'edit':
+      return renderEditMode();
+    case 'preview':
+      return renderPreviewMode();
+    case 'responses':
+      return renderResponsesMode();
+    default:
+      return '<div class="empty-state"><div class="empty-icon">?</div><div class="empty-title">Unknown Mode</div></div>';
+  }
+}
+
+function renderRightPanel() {
+  if (state.currentMode === 'edit' && state.selectedQuestion) {
+    return `
+      <div class="right-panel visible">
+        ${renderPropertyPanel()}
+      </div>
+    `;
+  }
+  return '<div class="right-panel"></div>';
+}
+
+// =====================
+// DASHBOARD MODE
+// =====================
+
+function renderDashboard() {
+  if (state.forms.length === 0) {
+    return `
+      <div class="empty-state">
+        <div class="empty-icon">📋</div>
+        <div class="empty-title">No forms yet</div>
+        <div class="empty-text">Create your first form to get started</div>
+        <button class="btn btn-primary" style="max-width: 200px; margin: 0 auto;" onclick="createNewForm()">Create Form</button>
+      </div>
+    `;
+  }
+  
+  return `
+    <div class="dashboard">
+      ${state.forms.map(form => renderFormCard(form)).join('')}
+    </div>
+  `;
+}
+
+function renderFormCard(form) {
+  const responseCount = 0; // Would come from API
+  return `
+    <div class="form-card">
+      <div class="form-card-header">
+        <div class="form-card-title">${escapeHtml(form.title)}</div>
+        <div class="form-card-desc">${escapeHtml(form.description || 'No description')}</div>
+      </div>
+      
+      <div class="form-card-stats">
+        <div class="stat">
+          <div class="stat-value">${form.questions.length}</div>
+          <div class="stat-label">Questions</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">${responseCount}</div>
+          <div class="stat-label">Responses</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">${new Date(form.createdAt).toLocaleDateString()}</div>
+          <div class="stat-label">Created</div>
+        </div>
+      </div>
+      
+      <div class="form-card-actions">
+        <button onclick="editForm('${form.id}')">Edit</button>
+        <button onclick="shareForm('${form.id}')">Share</button>
+        <button class="danger" onclick="deleteForm('${form.id}')">Delete</button>
+      </div>
+    </div>
+  `;
+}
+
+// =====================
+// EDIT MODE
+// =====================
+
+function renderEditMode() {
+  if (!state.currentForm) {
+    return '<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-title">Form not found</div></div>';
+  }
+  
+  return `
+    <div class="builder-header">
+      <div class="form-info">
+        <input type="text" id="form-title" value="${escapeHtml(state.currentForm.title)}" placeholder="Form title">
+        <textarea id="form-description" placeholder="Add a description (optional)..." rows="2">${escapeHtml(state.currentForm.description || '')}</textarea>
+      </div>
+    </div>
     
-    return {
-      text,
-      type,
-      options: type === 'multiple' ? options.split(',').map(o => o.trim()) : []
-    };
-  });
+    <div class="builder-canvas" id="questions-canvas">
+      ${renderQuestions()}
+    </div>
+    
+    <div class="add-question-zone">
+      <button class="add-question-btn" onclick="showAddQuestionMenu()">+ Add Question</button>
+    </div>
+    
+    <div id="add-question-menu" class="hidden" style="margin-top: 20px; padding: 20px; background: white; border-radius: 12px;">
+      ${renderQuestionTypeMenu()}
+    </div>
+  `;
+}
 
-  if (questions.length === 0) {
-    alert('Add at least one question');
-    return;
+function renderQuestions() {
+  if (!state.currentForm.questions || state.currentForm.questions.length === 0) {
+    return '';
   }
+  
+  return state.currentForm.questions.map((q, idx) => renderQuestionBlock(q, idx)).join('');
+}
 
+function renderQuestionBlock(question, index) {
+  const isSelected = state.selectedQuestion?.id === question.id;
+  
+  return `
+    <div class="question-block ${isSelected ? 'selected' : ''}" onclick="selectQuestion('${question.id}')" data-question-id="${question.id}" draggable="true">
+      <div class="question-handle" style="cursor: grab;" onmousedown="startDrag(event)"></div>
+      
+      <div class="question-content">
+        <div class="question-label">${getQuestionTypeLabel(question.type)}</div>
+        <div class="question-title" contenteditable="true" onclick="event.stopPropagation()" onblur="updateQuestionTitle(event, '${question.id}')" onkeydown="handleKeydown(event)">${escapeHtml(question.text)}</div>
+        
+        <div class="question-preview" style="margin-top: 12px;">
+          ${renderQuestionPreview(question)}
+        </div>
+        
+        <div class="question-actions">
+          <button class="action-btn" title="Duplicate" onclick="duplicateQuestion('${question.id}')">📋</button>
+          <button class="action-btn danger" title="Delete" onclick="deleteQuestion('${question.id}')">🗑️</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderQuestionPreview(question) {
+  switch (question.type) {
+    case 'short':
+      return '<input type="text" class="preview-input" placeholder="Short answer text" disabled>';
+    case 'long':
+      return '<textarea class="preview-input" placeholder="Long answer text" disabled rows="3"></textarea>';
+    case 'multiple':
+      return (question.options || []).map(opt => `
+        <label class="preview-option">
+          <input type="radio" name="q-${question.id}" disabled>
+          <span>${escapeHtml(opt)}</span>
+        </label>
+      `).join('');
+    case 'checkbox':
+      return (question.options || []).map(opt => `
+        <label class="preview-option">
+          <input type="checkbox" disabled>
+          <span>${escapeHtml(opt)}</span>
+        </label>
+      `).join('');
+    case 'rating':
+      return `
+        <div class="preview-options" style="flex-direction: row; gap: 4px;">
+          ${[1, 2, 3, 4, 5].map(i => `<button style="flex: 1; padding: 8px; border: 1px solid var(--neutral-200); background: white; border-radius: 4px; cursor: pointer;">⭐</button>`).join('')}
+        </div>
+      `;
+    case 'slider':
+      return '<input type="range" min="0" max="100" style="width: 100%;" disabled>';
+    case 'date':
+      return '<input type="date" class="preview-input" disabled>';
+    case 'email':
+      return '<input type="email" class="preview-input" placeholder="email@example.com" disabled>';
+    default:
+      return '<div class="text-sm text-neutral-600">Question preview</div>';
+  }
+}
+
+function renderQuestionTypeMenu() {
+  const types = [
+    { id: 'short', label: 'Short Text', icon: '📝' },
+    { id: 'long', label: 'Long Text', icon: '📄' },
+    { id: 'multiple', label: 'Multiple Choice', icon: '🔘' },
+    { id: 'checkbox', label: 'Checkboxes', icon: '☑️' },
+    { id: 'dropdown', label: 'Dropdown', icon: '▼' },
+    { id: 'rating', label: 'Rating', icon: '⭐' },
+    { id: 'slider', label: 'Slider', icon: '📊' },
+    { id: 'date', label: 'Date', icon: '📅' },
+    { id: 'email', label: 'Email', icon: '✉️' },
+    { id: 'ranking', label: 'Ranking', icon: '🏆' }
+  ];
+  
+  return `
+    <div class="question-type-menu">
+      ${types.map(t => `
+        <div class="type-card" onclick="addQuestion('${t.id}'); this.closest('#add-question-menu').classList.add('hidden');" style="cursor: pointer;">
+          <div class="type-icon">${t.icon}</div>
+          <div class="type-name">${t.label}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderPropertyPanel() {
+  if (!state.selectedQuestion) return '';
+  
+  const q = state.selectedQuestion;
+  
+  return `
+    <div class="panel-section">
+      <div class="panel-title">Question Settings</div>
+      
+      <div class="input-group">
+        <label>Question Text</label>
+        <textarea id="prop-text" onchange="updateQuestion('text', this.value)" rows="2">${escapeHtml(q.text)}</textarea>
+      </div>
+      
+      <div class="input-group">
+        <label>Description</label>
+        <textarea id="prop-description" onchange="updateQuestion('description', this.value)" rows="2" placeholder="Add a description...">${escapeHtml(q.description || '')}</textarea>
+      </div>
+    </div>
+    
+    <div class="panel-section">
+      <div class="panel-title">Options</div>
+      
+      <div class="checkbox-group">
+        <input type="checkbox" id="prop-required" ${q.required ? 'checked' : ''} onchange="updateQuestion('required', this.checked)">
+        <label for="prop-required">Required</label>
+      </div>
+    </div>
+    
+    ${renderQuestionTypeSettings(q)}
+  `;
+}
+
+function renderQuestionTypeSettings(question) {
+  if (['multiple', 'checkbox', 'dropdown', 'ranking'].includes(question.type)) {
+    return `
+      <div class="panel-section">
+        <div class="panel-title">Answer Options</div>
+        <div id="options-editor">
+          ${(question.options || []).map((opt, idx) => `
+            <div class="input-group" style="display: flex; gap: 8px; margin-bottom: 8px;">
+              <input type="text" value="${escapeHtml(opt)}" placeholder="Option ${idx + 1}" style="flex: 1;" onchange="updateQuestionOption(${idx}, this.value)">
+              <button class="action-btn danger" style="width: 32px;" onclick="removeQuestionOption(${idx})">🗑️</button>
+            </div>
+          `).join('')}
+        </div>
+        <button class="btn btn-secondary" style="width: 100%;" onclick="addQuestionOption()">+ Add Option</button>
+      </div>
+    `;
+  }
+  return '';
+}
+
+// =====================
+// PREVIEW MODE
+// =====================
+
+function renderPreviewMode() {
+  if (!state.currentForm) return '';
+  
+  return `
+    <div class="preview-wrapper">
+      <div class="preview-container">
+        <div class="preview-header">
+          <div class="preview-title">${escapeHtml(state.currentForm.title)}</div>
+          <div class="preview-description">${escapeHtml(state.currentForm.description || '')}</div>
+        </div>
+        
+        <form id="preview-form" onsubmit="submitPreviewForm(event)">
+          ${state.currentForm.questions.map((q, idx) => renderPreviewQuestion(q, idx)).join('')}
+          <button type="submit" class="submit-btn">Submit</button>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function renderPreviewQuestion(question, index) {
+  const required = question.required ? ' <span class="required-indicator">*</span>' : '';
+  
+  let inputHtml = '';
+  
+  switch (question.type) {
+    case 'short':
+      inputHtml = `<input type="text" name="q-${question.id}" class="preview-input" placeholder="Answer..." ${question.required ? 'required' : ''}>`;
+      break;
+    case 'long':
+      inputHtml = `<textarea name="q-${question.id}" class="preview-input" placeholder="Answer..." rows="4" ${question.required ? 'required' : ''}></textarea>`;
+      break;
+    case 'multiple':
+      inputHtml = `<div class="preview-options">${(question.options || []).map(opt => `
+        <label class="preview-option">
+          <input type="radio" name="q-${question.id}" value="${escapeHtml(opt)}" ${question.required ? 'required' : ''}>
+          <span>${escapeHtml(opt)}</span>
+        </label>
+      `).join('')}</div>`;
+      break;
+    case 'checkbox':
+      inputHtml = `<div class="preview-options">${(question.options || []).map(opt => `
+        <label class="preview-option">
+          <input type="checkbox" name="q-${question.id}" value="${escapeHtml(opt)}">
+          <span>${escapeHtml(opt)}</span>
+        </label>
+      `).join('')}</div>`;
+      break;
+    case 'rating':
+      inputHtml = `<div class="preview-options" style="flex-direction: row;">${[1, 2, 3, 4, 5].map(i => `
+        <label class="preview-option" style="flex: 1; margin: 0;">
+          <input type="radio" name="q-${question.id}" value="${i}" ${question.required ? 'required' : ''}>
+          <span>⭐</span>
+        </label>
+      `).join('')}</div>`;
+      break;
+    case 'date':
+      inputHtml = `<input type="date" name="q-${question.id}" class="preview-input" ${question.required ? 'required' : ''}>`;
+      break;
+    case 'email':
+      inputHtml = `<input type="email" name="q-${question.id}" class="preview-input" placeholder="email@example.com" ${question.required ? 'required' : ''}>`;
+      break;
+    default:
+      inputHtml = `<input type="text" name="q-${question.id}" class="preview-input" ${question.required ? 'required' : ''}>`;
+  }
+  
+  return `
+    <div class="preview-question">
+      <div class="preview-label">
+        ${escapeHtml(question.text)}
+        ${required}
+      </div>
+      ${question.description ? `<div style="font-size: 13px; color: var(--neutral-600); margin-bottom: 8px;">${escapeHtml(question.description)}</div>` : ''}
+      ${inputHtml}
+    </div>
+  `;
+}
+
+// =====================
+// RESPONSES MODE
+// =====================
+
+function renderResponsesMode() {
+  if (!state.currentForm) return '';
+  
+  return `
+    <div class="responses-header">
+      <h2>${escapeHtml(state.currentForm.title)}</h2>
+      <p>Responses & Analytics</p>
+    </div>
+    
+    <div class="stats-container">
+      <div class="stat-box">
+        <div class="stat-box-value">0</div>
+        <div class="stat-box-label">Total Responses</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-box-value">0%</div>
+        <div class="stat-box-label">Completion Rate</div>
+      </div>
+    </div>
+    
+    <div class="responses-list">
+      <div class="empty-state">
+        <div class="empty-icon">📭</div>
+        <div class="empty-title">No responses yet</div>
+        <div class="empty-text">Share your form to start collecting responses</div>
+      </div>
+    </div>
+  `;
+}
+
+// =====================
+// HELPER FUNCTIONS
+// =====================
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function getQuestionTypeLabel(type) {
+  const labels = {
+    'short': 'Short Text',
+    'long': 'Long Text',
+    'multiple': 'Multiple Choice',
+    'checkbox': 'Checkboxes',
+    'dropdown': 'Dropdown',
+    'rating': 'Rating',
+    'slider': 'Slider',
+    'date': 'Date',
+    'email': 'Email',
+    'ranking': 'Ranking'
+  };
+  return labels[type] || type;
+}
+
+function handleKeydown(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    e.target.blur();
+  }
+}
+
+function updateQuestionTitle(event, questionId) {
+  const newText = event.target.textContent;
+  const question = state.currentForm.questions.find(q => q.id === questionId);
+  if (question) {
+    question.text = newText;
+    if (state.selectedQuestion?.id === questionId) {
+      state.selectedQuestion.text = newText;
+    }
+    saveFormToDraft();
+  }
+}
+
+function updateQuestion(field, value) {
+  if (state.selectedQuestion) {
+    state.selectedQuestion[field] = value;
+    saveFormToDraft();
+    render(); // Refresh to update property panel
+  }
+}
+
+function updateQuestionOption(index, value) {
+  if (state.selectedQuestion) {
+    state.selectedQuestion.options = state.selectedQuestion.options || [];
+    state.selectedQuestion.options[index] = value;
+    saveFormToDraft();
+  }
+}
+
+function addQuestionOption() {
+  if (state.selectedQuestion) {
+    state.selectedQuestion.options = state.selectedQuestion.options || [];
+    state.selectedQuestion.options.push('New option');
+    saveFormToDraft();
+    render();
+  }
+}
+
+function removeQuestionOption(index) {
+  if (state.selectedQuestion) {
+    state.selectedQuestion.options.splice(index, 1);
+    saveFormToDraft();
+    render();
+  }
+}
+
+function saveFormToDraft() {
+  // Auto-save to backend
+  if (state.currentForm && state.currentForm.id) {
+    const formData = {
+      title: document.getElementById('form-title')?.value || state.currentForm.title,
+      description: document.getElementById('form-description')?.value || state.currentForm.description,
+      questions: state.currentForm.questions,
+      settings: state.currentForm.settings
+    };
+    
+    // Debounced save
+    clearTimeout(saveFormToDraft.timeout);
+    saveFormToDraft.timeout = setTimeout(() => {
+      fetch(`${API_URL}/forums/${state.currentForm.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify(formData)
+      }).catch(err => console.error('Auto-save failed:', err));
+    }, 1000);
+  }
+}
+
+// =====================
+// FORM OPERATIONS
+// =====================
+
+async function createNewForm() {
+  const title = prompt('Form title:') || 'Untitled Form';
+  
   try {
-    const res = await fetch(`${API_URL}/forums`, {
+    const res = await fetch(API_URL + '/forums', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       },
-      body: JSON.stringify({ title, description, questions })
+      body: JSON.stringify({
+        title,
+        description: '',
+        questions: [{ id: uuidv4(), text: 'Question 1', type: 'short', required: false, options: [] }],
+        settings: { showProgressBar: true, accentColor: '#667eea' }
+      })
     });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-
-    alert('Forum created! Share the link with people to collect responses.');
-    showScreen('my-forums');
-    loadMyForums();
+    
+    const form = await res.json();
+    state.currentForm = form;
+    state.currentMode = 'edit';
+    state.selectedQuestion = form.questions[0];
+    await loadForms();
+    render();
   } catch (err) {
-    alert('Error creating forum: ' + err.message);
+    alert('Error creating form: ' + err.message);
   }
 }
 
-async function loadMyForums() {
+async function editForm(formId) {
   try {
-    const res = await fetch(`${API_URL}/my-forums`, {
+    const res = await fetch(`${API_URL}/forums/${formId}`, {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     });
-
-    const forums = await res.json();
-    state.forums = forums;
-
-    const list = document.getElementById('forums-list');
-    if (forums.length === 0) {
-      list.innerHTML = '<p style="text-align: center; color: white; grid-column: 1/-1;">No forums yet. Create one to get started!</p>';
-      return;
-    }
-
-    list.innerHTML = forums.map(forum => `
-      <div class="forum-card">
-        <h3>${forum.title}</h3>
-        <p>${forum.description || 'No description'}</p>
-        <div class="forum-stats">
-          <span>Questions: ${forum.questions.length}</span>
-          <span>Created: ${new Date(forum.createdAt).toLocaleDateString()}</span>
-        </div>
-        <div class="forum-actions">
-          <button onclick="viewForum('${forum.id}')">View Responses</button>
-          <button onclick="deleteForum('${forum.id}')" style="background: #e74c3c;">Delete</button>
-        </div>
-      </div>
-    `).join('');
+    
+    state.currentForm = await res.json();
+    state.currentMode = 'edit';
+    state.selectedQuestion = state.currentForm.questions?.[0] || null;
+    render();
   } catch (err) {
-    console.error('Error loading forums:', err);
+    alert('Error loading form: ' + err.message);
   }
 }
 
-async function viewForum(forumId) {
+async function deleteForm(formId) {
+  if (!confirm('Delete this form? This cannot be undone.')) return;
+  
   try {
-    const res = await fetch(`${API_URL}/forums/${forumId}`, {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    });
-
-    const forum = await res.json();
-    if (!res.ok) throw new Error(forum.error);
-
-    state.currentForum = forum;
-    showScreen('view-forum');
-    loadForumResponses(forumId);
-  } catch (err) {
-    alert('Error loading forum: ' + err.message);
-  }
-}
-
-async function loadForumResponses(forumId) {
-  try {
-    const res = await fetch(`${API_URL}/forums/${forumId}/responses`, {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    });
-
-    const responses = await res.json();
-    document.getElementById('response-count').textContent = responses.length;
-
-    const container = document.getElementById('responses-container');
-    if (responses.length === 0) {
-      container.innerHTML = '<p style="text-align: center; color: #999; padding: 40px;">No responses yet</p>';
-      return;
-    }
-
-    container.innerHTML = responses.map(response => `
-      <div class="response-item">
-        <div class="response-header">
-          <span>Submitted: ${new Date(response.submittedAt).toLocaleString()}</span>
-        </div>
-        <div class="response-answers">
-          ${response.answers.map((answer, idx) => `
-            <div class="answer">
-              <div class="answer-question">${state.currentForum.questions[idx]?.text || 'Question'}</div>
-              <div class="answer-content">${answer}</div>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `).join('');
-  } catch (err) {
-    console.error('Error loading responses:', err);
-  }
-}
-
-async function deleteForum(forumId) {
-  if (!confirm('Are you sure you want to delete this forum?')) return;
-
-  try {
-    const res = await fetch(`${API_URL}/forums/${forumId}`, {
+    await fetch(`${API_URL}/forums/${formId}`, {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     });
-
-    if (!res.ok) throw new Error('Failed to delete');
-
-    alert('Forum deleted');
-    loadMyForums();
-    showScreen('my-forums');
+    
+    await loadForms();
+    render();
   } catch (err) {
-    alert('Error deleting forum: ' + err.message);
+    alert('Error deleting form: ' + err.message);
   }
 }
 
-function showScreen(screenName) {
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.getElementById(`${screenName}-screen`).classList.add('active');
-
-  if (screenName === 'my-forums') {
-    loadMyForums();
+async function loadForms() {
+  try {
+    const res = await fetch(API_URL + '/my-forums', {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    });
+    
+    state.forms = await res.json();
+  } catch (err) {
+    console.error('Error loading forms:', err);
   }
 }
 
-function attachEventListeners() {
-  if (!document.querySelector('.question-item')) {
-    addQuestion();
-  }
-}
-
-function copyToClipboard(text) {
-  navigator.clipboard.writeText(text).then(() => {
-    alert('Link copied to clipboard!');
-  });
-}
-
-function toggleAuthMode() {
-  const authContainer = document.querySelector('.auth-container');
-  const h2 = authContainer.querySelector('h2');
-  const toggleBtn = authContainer.querySelector('.auth-toggle button');
+function shareForm(formId) {
+  const id = formId || state.currentForm?.id;
+  const link = `${window.location.origin}/fill/${id}`;
   
-  if (h2.textContent === 'Login') {
-    h2.textContent = 'Sign Up';
-    toggleBtn.textContent = 'Login';
-    authContainer.querySelector('button').textContent = 'Sign Up';
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(link);
+    alert('Form link copied to clipboard!');
   } else {
-    h2.textContent = 'Login';
-    toggleBtn.textContent = 'Sign Up';
-    authContainer.querySelector('button').textContent = 'Login';
+    alert(`Share this link: ${link}`);
   }
 }
 
-function init() {
-  const token = localStorage.getItem('token');
-  if (token) {
-    state.user = { email: 'user@example.com' };
-  }
+// =====================
+// MODE SWITCHING
+// =====================
+
+function switchMode(mode) {
+  state.currentMode = mode;
+  state.selectedQuestion = null;
   render();
 }
 
-init();
+function selectQuestion(questionId) {
+  const question = state.currentForm.questions.find(q => q.id === questionId);
+  if (question) {
+    state.selectedQuestion = question;
+    render();
+  }
+}
+
+function showAddQuestionMenu() {
+  const menu = document.getElementById('add-question-menu');
+  if (menu) {
+    menu.classList.toggle('hidden');
+  }
+}
+
+async function addQuestion(type) {
+  const newQuestion = {
+    id: uuidv4(),
+    text: `New ${getQuestionTypeLabel(type)}`,
+    type,
+    required: false,
+    description: '',
+    options: ['multiple', 'checkbox', 'dropdown', 'ranking'].includes(type) ? ['Option 1', 'Option 2'] : []
+  };
+  
+  state.currentForm.questions.push(newQuestion);
+  state.selectedQuestion = newQuestion;
+  saveFormToDraft();
+  render();
+}
+
+function duplicateQuestion(questionId) {
+  const question = state.currentForm.questions.find(q => q.id === questionId);
+  if (question) {
+    const duplicate = { ...question, id: uuidv4() };
+    const index = state.currentForm.questions.indexOf(question);
+    state.currentForm.questions.splice(index + 1, 0, duplicate);
+    state.selectedQuestion = duplicate;
+    saveFormToDraft();
+    render();
+  }
+}
+
+function deleteQuestion(questionId) {
+  const index = state.currentForm.questions.findIndex(q => q.id === questionId);
+  if (index > -1) {
+    state.currentForm.questions.splice(index, 1);
+    state.selectedQuestion = null;
+    saveFormToDraft();
+    render();
+  }
+}
+
+function startDrag(e) {
+  e.stopPropagation();
+}
+
+function submitPreviewForm(e) {
+  e.preventDefault();
+  alert('Form submitted! (In a real app, this would save the response)');
+}
+
+function handleLogout() {
+  if (confirm('Logout?')) {
+    localStorage.removeItem('token');
+    localStorage.removeItem('userEmail');
+    state.user = null;
+    state.currentForm = null;
+    state.currentMode = 'dashboard';
+    render();
+  }
+}
+
+function uuidv4() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+// =====================
+// EVENT LISTENERS
+// =====================
+
+function attachAuthListeners() {
+  document.getElementById('auth-password').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') handleAuth();
+  });
+}
+
+function attachMainListeners() {
+  // Auto-save form title and description
+  const titleInput = document.getElementById('form-title');
+  const descInput = document.getElementById('form-description');
+  
+  if (titleInput) {
+    titleInput.addEventListener('blur', () => saveFormToDraft());
+  }
+  if (descInput) {
+    descInput.addEventListener('blur', () => saveFormToDraft());
+  }
+}
+
+// =====================
+// INITIALIZATION
+// =====================
+
+// Load forms on startup
+async function startup() {
+  await loadForms();
+  init();
+}
+
+startup();

@@ -12,10 +12,10 @@ const SECRET_KEY = 'your-secret-key-change-this-in-production';
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 app.use(express.static('public'));
 
-// Data storage (JSON files - upgrade to DB later if needed)
+// Data storage
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -98,7 +98,7 @@ app.post('/api/auth/login', (req, res) => {
 
 // FORUM ROUTES
 app.post('/api/forums', verifyToken, (req, res) => {
-  const { title, description, questions } = req.body;
+  const { title, description, questions, settings } = req.body;
 
   if (!title || !questions || questions.length === 0) {
     return res.status(400).json({ error: 'Title and questions required' });
@@ -111,12 +111,17 @@ app.post('/api/forums', verifyToken, (req, res) => {
     title,
     description: description || '',
     questions: questions.map(q => ({
-      id: uuidv4(),
+      id: q.id || uuidv4(),
       ...q
     })),
+    settings: settings || {
+      showProgressBar: true,
+      oneQuestionPerPage: false,
+      randomizeOrder: false,
+      accentColor: '#667eea'
+    },
     createdAt: new Date(),
-    updatedAt: new Date(),
-    shareLink: `/forum/${uuidv4().slice(0, 8)}`
+    updatedAt: new Date()
   };
 
   let forums = readData(FORUMS_FILE);
@@ -137,6 +142,26 @@ app.get('/api/forums/:id', verifyToken, (req, res) => {
   res.json(forum);
 });
 
+app.put('/api/forums/:id', verifyToken, (req, res) => {
+  let forums = readData(FORUMS_FILE);
+  const forumIndex = forums.findIndex(f => f.id === req.params.id && f.creatorId === req.userId);
+
+  if (forumIndex === -1) {
+    return res.status(404).json({ error: 'Forum not found' });
+  }
+
+  const updated = {
+    ...forums[forumIndex],
+    ...req.body,
+    updatedAt: new Date()
+  };
+
+  forums[forumIndex] = updated;
+  writeData(FORUMS_FILE, forums);
+
+  res.json(updated);
+});
+
 app.get('/api/my-forums', verifyToken, (req, res) => {
   const forums = readData(FORUMS_FILE);
   const userForums = forums.filter(f => f.creatorId === req.userId);
@@ -145,7 +170,6 @@ app.get('/api/my-forums', verifyToken, (req, res) => {
 
 app.get('/api/forums', (req, res) => {
   const forums = readData(FORUMS_FILE);
-  // Return basic info without responses
   res.json(forums.map(f => ({
     id: f.id,
     title: f.title,
@@ -226,7 +250,7 @@ app.get('/api/forums/:forumId/stats', verifyToken, (req, res) => {
 
   res.json({
     totalResponses: forumResponses.length,
-    responseRate: forumResponses.length,
+    completionRate: forumResponses.length > 0 ? 100 : 0,
     lastResponse: forumResponses[forumResponses.length - 1]?.submittedAt || null
   });
 });
